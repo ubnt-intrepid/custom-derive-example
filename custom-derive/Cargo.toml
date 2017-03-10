@@ -1,0 +1,12 @@
+[package]
+name = "custom-derive"
+version = "0.1.0"
+authors = ["Yusuke Sasaki <yusuke.sasaki.nuem@gmail.com>"]
+
+[lib]
+proc-macro = true
+path = "lib.rs"
+
+[dependencies]
+syn = "*"
+quote = "*"
