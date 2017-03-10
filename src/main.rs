@@ -8,7 +8,9 @@ trait Subcommand {
 
 #[derive(Debug, Subcommand)]
 enum MyApp {
+  #[clap(name = "foo", help = "Foo app")]
   Foo(Foo),
+  #[clap(name = "hoge", help = "Bar app")]
   Bar(Bar),
 }
 
