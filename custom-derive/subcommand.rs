@@ -50,11 +50,7 @@ impl Subcommand {
     let about = self.attribute_about();
     let body = self.variants
       .iter()
-      .map(|v| v.to_derived_tokens_app())
-      .fold(Tokens::new(), |mut tokens, v| {
-        v.to_tokens(&mut tokens);
-        tokens
-      });
+      .map(|v| v.to_derived_tokens_app());
     quote! {
       impl Subcommand for #ident {
         fn app<'a, 'b: 'a>() -> clap::App<'a, 'b> {
@@ -62,7 +58,7 @@ impl Subcommand {
             .about(#about)
             .setting(clap::AppSettings::VersionlessSubcommands)
             .setting(clap::AppSettings::SubcommandRequiredElseHelp)
-            #body
+            #(#body)*
         }
       }
     }
@@ -72,16 +68,12 @@ impl Subcommand {
     let ident = &self.ident;
     let body = self.variants
       .iter()
-      .map(|v| v.to_derived_tokens_from(&self.ident))
-      .fold(Tokens::new(), |mut tokens, v| {
-        v.to_tokens(&mut tokens);
-        tokens
-      });
+      .map(|v| v.to_derived_tokens_from(&self.ident));
     quote! {
       impl<'a, 'b:'a> From<&'b clap::ArgMatches<'a>> for #ident {
         fn from(m: &'b clap::ArgMatches<'a>) -> Self {
           match m.subcommand() {
-            #body
+            #(#body)*
             _ => unreachable!(),
           }
         }
