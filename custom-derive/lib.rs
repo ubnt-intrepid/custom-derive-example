@@ -7,15 +7,19 @@ mod subcommand;
 mod util;
 
 use proc_macro::TokenStream;
+use syn::Body;
 use subcommand::Subcommand;
 
 #[proc_macro_derive(App, attributes(clap))]
-pub fn subcommand(input: TokenStream) -> TokenStream {
-  let subcommand = syn::parse_derive_input(&input.to_string())
-    .and_then(Subcommand::new)
-    .unwrap();
+pub fn derive_clap_app(input: TokenStream) -> TokenStream {
+  let ast = syn::parse_derive_input(&input.to_string()).unwrap();
+  let quotes = match ast.body {
+    Body::Enum(variants) => {
+      let subcommand = Subcommand::new(ast.ident, ast.attrs, variants).unwrap();
+      quote!(#subcommand)
+    }
+    Body::Struct(_) => panic!("#[derive(Subcommand)] is only supported for enum"),
+  };
 
-  subcommand.to_derived_tokens()
-    .parse()
-    .unwrap()
+  quotes.parse().unwrap()
 }

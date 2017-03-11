@@ -1,4 +1,4 @@
-use syn::{Attribute, Body, DeriveInput, Ident, Lit, MetaItem, NestedMetaItem, Variant};
+use syn::{Attribute, Ident, Lit, MetaItem, NestedMetaItem, Variant};
 use quote::Tokens;
 
 
@@ -9,25 +9,19 @@ pub struct Subcommand {
 }
 
 impl Subcommand {
-  pub fn new(ast: DeriveInput) -> Result<Subcommand, String> {
-    let ident = ast.ident;
-    let attr = SubcommandAttribute::new(ast.attrs)?;
+  pub fn new(ident: Ident, attrs: Vec<Attribute>, v: Vec<Variant>) -> Result<Subcommand, String> {
+    let attrs = SubcommandAttribute::new(attrs)?;
 
-    match ast.body {
-      Body::Enum(_variants) => {
-        let mut variants = Vec::with_capacity(_variants.len());
-        for variant in _variants {
-          variants.push(SubcommandVariant::new(variant)?);
-        }
-
-        Ok(Subcommand {
-          ident: ident,
-          attr: attr,
-          variants: variants,
-        })
-      }
-      Body::Struct(_) => Err("#[derive(Subcommand)] is only supported for enum".into()),
+    let mut variants = Vec::with_capacity(v.len());
+    for variant in v {
+      variants.push(SubcommandVariant::new(variant)?);
     }
+
+    Ok(Subcommand {
+      ident: ident,
+      attr: attrs,
+      variants: variants,
+    })
   }
 
   fn attribute_name(&self) -> Tokens {
@@ -50,18 +44,12 @@ impl Subcommand {
       .collect()
   }
 
-  pub fn to_derived_tokens(&self) -> Tokens {
-    let mut tokens = Tokens::new();
-    tokens.append_all(&[self.to_derived_tokens_subcommand(), self.to_derived_tokens_from()]);
-    tokens
-  }
-
   fn to_derived_tokens_subcommand(&self) -> Tokens {
     let ident = &self.ident;
     let name = self.attribute_name();
     let about = self.attribute_about();
     let settings = self.attribute_settings();
-    let subcommand_bodies = self.variants.iter().map(|v:&SubcommandVariant| {
+    let subcommand_bodies = self.variants.iter().map(|v: &SubcommandVariant| {
       let name = v.attribute_name();
       let about = v.attribute_about();
       let ty = &v.ty;
@@ -102,6 +90,12 @@ impl Subcommand {
         }
       }
     ]
+  }
+}
+
+impl ::quote::ToTokens for Subcommand {
+  fn to_tokens(&self, tokens: &mut Tokens) {
+    tokens.append_all(&[self.to_derived_tokens_subcommand(), self.to_derived_tokens_from()]);
   }
 }
 
@@ -167,9 +161,7 @@ impl SubcommandVariant {
     let attr = SubcommandVariantAttribute::new(variant.attrs)?;
 
     let ty = match variant.data {
-      ::syn::VariantData::Tuple(ref fields) if fields.len() == 1 => {
-        fields[0].ty.clone()
-      }
+      ::syn::VariantData::Tuple(ref fields) if fields.len() == 1 => fields[0].ty.clone(),
       _ => return Err("".into()),
     };
 
