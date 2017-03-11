@@ -1,6 +1,5 @@
 use syn::{Attribute, Body, DeriveInput, Ident, Lit, MetaItem, NestedMetaItem, Variant};
-use quote::Tokens;
-use util;
+use quote::{Tokens, ToTokens};
 
 
 pub struct Subcommand {
@@ -31,19 +30,31 @@ impl Subcommand {
     }
   }
 
+  fn attribute_name(&self) -> Tokens {
+    self.attr.name.as_ref().map(|s| quote!(#s)).unwrap_or(quote!(env!("CARGO_PKG_NAME")))
+  }
+
+  fn attribute_about(&self) -> Tokens {
+    self.attr.about.as_ref().map(|s| quote!(#s)).unwrap_or(quote!(env!("CARGO_PKG_DESCRIPTION")))
+  }
+
   pub fn to_derived_tokens(&self) -> Tokens {
+    let mut tokens = Tokens::new();
+    tokens.append_all(&[self.to_derived_tokens_subcommand(), self.to_derived_tokens_from()]);
+    tokens
+  }
+
+  fn to_derived_tokens_subcommand(&self) -> Tokens {
     let ident = &self.ident;
-    let name = &self.attr.name;
-    let about = &self.attr.about;
-
-    let subcommand_apps = {
-      util::join_tokens(self.variants.iter().map(|v| v.to_derived_tokens_app()))
-    };
-
-    let subcommand_froms = {
-      util::join_tokens(self.variants.iter().map(|v| v.to_derived_tokens_from(&self.ident)))
-    };
-
+    let name = self.attribute_name();
+    let about = self.attribute_about();
+    let body = self.variants
+      .iter()
+      .map(|v| v.to_derived_tokens_app())
+      .fold(Tokens::new(), |mut tokens, v| {
+        v.to_tokens(&mut tokens);
+        tokens
+      });
     quote! {
       impl Subcommand for #ident {
         fn app<'a, 'b: 'a>() -> clap::App<'a, 'b> {
@@ -51,13 +62,26 @@ impl Subcommand {
             .about(#about)
             .setting(clap::AppSettings::VersionlessSubcommands)
             .setting(clap::AppSettings::SubcommandRequiredElseHelp)
-            #subcommand_apps
+            #body
         }
       }
+    }
+  }
+
+  pub fn to_derived_tokens_from(&self) -> Tokens {
+    let ident = &self.ident;
+    let body = self.variants
+      .iter()
+      .map(|v| v.to_derived_tokens_from(&self.ident))
+      .fold(Tokens::new(), |mut tokens, v| {
+        v.to_tokens(&mut tokens);
+        tokens
+      });
+    quote! {
       impl<'a, 'b:'a> From<&'b clap::ArgMatches<'a>> for #ident {
         fn from(m: &'b clap::ArgMatches<'a>) -> Self {
           match m.subcommand() {
-            #subcommand_froms
+            #body
             _ => unreachable!(),
           }
         }
@@ -67,45 +91,42 @@ impl Subcommand {
 }
 
 
+#[derive(Default)]
 struct SubcommandAttribute {
-  name: Tokens,
-  about: Tokens,
+  name: Option<String>,
+  about: Option<String>,
 }
 
 impl SubcommandAttribute {
   fn new(attrs: Vec<Attribute>) -> Result<SubcommandAttribute, String> {
-    let mut name = None;
-    let mut about = None;
-
+    let mut result = SubcommandAttribute::default();
     for attr in attrs.into_iter().filter(|attr| attr.name() == "clap") {
-      let items = match attr.value {
-        MetaItem::List(_, ref items) => items,
-        _ => continue,
+      result.lookup_item(attr)?;
+    }
+    Ok(result)
+  }
+
+  fn lookup_item(&mut self, attr: Attribute) -> Result<(), String> {
+    let items = match attr.value {
+      MetaItem::List(_, ref items) => items,
+      _ => return Ok(()),
+    };
+
+    for item in items {
+      let (ident, value) = match *item { 
+        NestedMetaItem::MetaItem(MetaItem::NameValue(ref ident, Lit::Str(ref value, _))) => {
+          (ident, value)
+        }
+        _ => return Err("invalud attribute".into()),
       };
 
-      for item in items {
-        let (ident, value) = match *item { 
-          NestedMetaItem::MetaItem(MetaItem::NameValue(ref ident, Lit::Str(ref value, _))) => {
-            (ident, value)
-          }
-          _ => return Err("invalud attribute".into()),
-        };
-
-        match ident.as_ref() {
-          "name" => name = Some(value.to_owned()),
-          "about" => about = Some(value.to_owned()),
-          _ => return Err("invalid attribute name".into()),
-        }
+      match ident.as_ref() {
+        "name" => self.name = Some(value.to_owned()),
+        "about" => self.about = Some(value.to_owned()),
+        _ => return Err("invalid attribute name".into()),
       }
     }
-
-    let name = name.map(|s| quote!(#s)).unwrap_or(quote!(env!("CARGO_PKG_NAME")));
-    let about = about.map(|s| quote!(#s)).unwrap_or(quote!(env!("CARGO_PKG_DESCRIPTION")));
-
-    Ok(SubcommandAttribute {
-      name: name,
-      about: about,
-    })
+    Ok(())
   }
 }
 
@@ -124,24 +145,24 @@ impl SubcommandVariant {
     })
   }
 
-  fn subcommand_name(&self) -> String {
+  fn attribute_name(&self) -> String {
     self.attr.name.as_ref().map(|s| s.clone()).unwrap_or_else(|| self.ident.as_ref().to_lowercase())
   }
 
-  fn subcommand_help(&self) -> String {
+  fn attribute_help(&self) -> String {
     self.attr.help.as_ref().map(|s| s.clone()).unwrap_or_else(|| format!("{}", self.ident.as_ref()))
   }
 
   fn to_derived_tokens_app(&self) -> Tokens {
-    let name = self.subcommand_name();
-    let about = self.subcommand_help();
+    let name = self.attribute_name();
+    let about = self.attribute_help();
     quote! {
       .subcommand(clap::SubCommand::with_name(#name).about(#about))
     }
   }
 
   fn to_derived_tokens_from(&self, ident: &Ident) -> Tokens {
-    let name = self.subcommand_name();
+    let name = self.attribute_name();
     let variant = &self.ident;
     quote! {
       (#name, _) => #ident :: #variant(Default::default()),
