@@ -1,5 +1,5 @@
 use syn::{Attribute, Body, DeriveInput, Ident, Lit, MetaItem, NestedMetaItem, Variant};
-use quote::{Tokens, ToTokens};
+use quote::Tokens;
 
 
 pub struct Subcommand {
@@ -38,6 +38,18 @@ impl Subcommand {
     self.attr.about.as_ref().map(|s| quote!(#s)).unwrap_or(quote!(env!("CARGO_PKG_DESCRIPTION")))
   }
 
+  pub fn attribute_settings(&self) -> Vec<Tokens> {
+    self.attr
+      .settings
+      .iter()
+      .map(|s| match s.as_str() {
+        "VersionlessSubcommands" => quote!(::clap::AppSettings::VersionlessSubcommands),
+        "SubcommandRequiredElseHelp" => quote!(::clap::AppSettings::SubcommandRequiredElseHelp),
+        _ => panic!("invalid setting value"),
+      })
+      .collect()
+  }
+
   pub fn to_derived_tokens(&self) -> Tokens {
     let mut tokens = Tokens::new();
     tokens.append_all(&[self.to_derived_tokens_subcommand(), self.to_derived_tokens_from()]);
@@ -48,6 +60,7 @@ impl Subcommand {
     let ident = &self.ident;
     let name = self.attribute_name();
     let about = self.attribute_about();
+    let settings = self.attribute_settings();
     let body = self.variants
       .iter()
       .map(|v| v.to_derived_tokens_app());
@@ -56,9 +69,8 @@ impl Subcommand {
         fn app<'a, 'b: 'a>() -> clap::App<'a, 'b> {
           clap::App::new(#name)
             .about(#about)
-            .setting(clap::AppSettings::VersionlessSubcommands)
-            .setting(clap::AppSettings::SubcommandRequiredElseHelp)
-            #(#body)*
+            .settings(&[ #(#settings),* ])
+            #( #body )*
         }
       }
     }
@@ -87,37 +99,47 @@ impl Subcommand {
 struct SubcommandAttribute {
   name: Option<String>,
   about: Option<String>,
+  settings: Vec<String>,
 }
 
 impl SubcommandAttribute {
   fn new(attrs: Vec<Attribute>) -> Result<SubcommandAttribute, String> {
     let mut result = SubcommandAttribute::default();
-    for attr in attrs.into_iter().filter(|attr| attr.name() == "clap") {
+    for attr in attrs {
       result.lookup_item(attr)?;
     }
     Ok(result)
   }
 
   fn lookup_item(&mut self, attr: Attribute) -> Result<(), String> {
+    if attr.name() != "clap" {
+      return Ok(());
+    }
+
     let items = match attr.value {
-      MetaItem::List(_, ref items) => items,
+      MetaItem::List(_, items) => items,
       _ => return Ok(()),
     };
 
     for item in items {
-      let (ident, value) = match *item { 
-        NestedMetaItem::MetaItem(MetaItem::NameValue(ref ident, Lit::Str(ref value, _))) => {
-          (ident, value)
+      match item { 
+        NestedMetaItem::MetaItem(item) => {
+          match item {
+            MetaItem::NameValue(ref ident, Lit::Str(ref value, _)) => {
+              match ident.as_ref() {
+                "name" => self.name = Some(value.to_owned()),
+                "about" => self.about = Some(value.to_owned()),
+                _ => return Err("invalid attribute name".into()),
+              }
+            }
+            MetaItem::Word(ref ident) => self.settings.push(ident.as_ref().into()),
+            _ => return Err("invalud attribute".into()),
+          }
         }
         _ => return Err("invalud attribute".into()),
-      };
-
-      match ident.as_ref() {
-        "name" => self.name = Some(value.to_owned()),
-        "about" => self.about = Some(value.to_owned()),
-        _ => return Err("invalid attribute name".into()),
       }
     }
+
     Ok(())
   }
 }
