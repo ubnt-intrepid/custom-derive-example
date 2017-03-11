@@ -69,16 +69,20 @@ impl Subcommand {
         <#ty as App>::append(clap::SubCommand::with_name(#name).about(#about))
       }
     });
-    quote! {
-      impl Subcommand for #ident {
+
+    quote![
+      impl App for #ident {
         fn app<'a, 'b: 'a>() -> clap::App<'a, 'b> {
           clap::App::new(#name)
-            .about(#about)
+        }
+
+        fn append<'a, 'b: 'a>(app: clap::App<'a, 'b>) -> clap::App<'a, 'b> {
+          app.about(#about)
             .settings(&[ #(#settings),* ])
             #( .subcommand(#subcommand_bodies) )*
         }
       }
-    }
+    ]
   }
 
   pub fn to_derived_tokens_from(&self) -> Tokens {
@@ -88,7 +92,7 @@ impl Subcommand {
       let variant = &v.ident;
       quote!(#ident :: #variant(m.into()))
     });
-    quote! {
+    quote![
       impl<'a, 'b:'a> From<&'b clap::ArgMatches<'a>> for #ident {
         fn from(m: &'b clap::ArgMatches<'a>) -> Self {
           match m.subcommand() {
@@ -97,7 +101,7 @@ impl Subcommand {
           }
         }
       }
-    }
+    ]
   }
 }
 
