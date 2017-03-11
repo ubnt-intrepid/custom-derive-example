@@ -61,16 +61,21 @@ impl Subcommand {
     let name = self.attribute_name();
     let about = self.attribute_about();
     let settings = self.attribute_settings();
-    let body = self.variants
-      .iter()
-      .map(|v| v.to_derived_tokens_app());
+    let subcommand_bodies = self.variants.iter().map(|v:&SubcommandVariant| {
+      let name = v.attribute_name();
+      let about = v.attribute_about();
+      let ty = &v.ty;
+      quote!{
+        <#ty as App>::append(clap::SubCommand::with_name(#name).about(#about))
+      }
+    });
     quote! {
       impl Subcommand for #ident {
         fn app<'a, 'b: 'a>() -> clap::App<'a, 'b> {
           clap::App::new(#name)
             .about(#about)
             .settings(&[ #(#settings),* ])
-            #( #body )*
+            #( .subcommand(#subcommand_bodies) )*
         }
       }
     }
@@ -78,14 +83,16 @@ impl Subcommand {
 
   pub fn to_derived_tokens_from(&self) -> Tokens {
     let ident = &self.ident;
-    let body = self.variants
-      .iter()
-      .map(|v| v.to_derived_tokens_from(&self.ident));
+    let names = self.variants.iter().map(|v| v.attribute_name());
+    let variants = self.variants.iter().map(|v| {
+      let variant = &v.ident;
+      quote!(#ident :: #variant(m.into()))
+    });
     quote! {
       impl<'a, 'b:'a> From<&'b clap::ArgMatches<'a>> for #ident {
         fn from(m: &'b clap::ArgMatches<'a>) -> Self {
           match m.subcommand() {
-            #(#body)*
+            #( (#names, Some(m)) => #variants, )*
             _ => unreachable!(),
           }
         }
@@ -147,15 +154,25 @@ impl SubcommandAttribute {
 
 struct SubcommandVariant {
   ident: Ident,
+  ty: ::syn::Ty,
   attr: SubcommandVariantAttribute,
 }
 
 impl SubcommandVariant {
   fn new(variant: Variant) -> Result<SubcommandVariant, String> {
     let attr = SubcommandVariantAttribute::new(variant.attrs)?;
+
+    let ty = match variant.data {
+      ::syn::VariantData::Tuple(ref fields) if fields.len() == 1 => {
+        fields[0].ty.clone()
+      }
+      _ => return Err("".into()),
+    };
+
     Ok(SubcommandVariant {
       ident: variant.ident,
       attr: attr,
+      ty: ty,
     })
   }
 
@@ -163,24 +180,8 @@ impl SubcommandVariant {
     self.attr.name.as_ref().map(|s| s.clone()).unwrap_or_else(|| self.ident.as_ref().to_lowercase())
   }
 
-  fn attribute_help(&self) -> String {
+  fn attribute_about(&self) -> String {
     self.attr.help.as_ref().map(|s| s.clone()).unwrap_or_else(|| format!("{}", self.ident.as_ref()))
-  }
-
-  fn to_derived_tokens_app(&self) -> Tokens {
-    let name = self.attribute_name();
-    let about = self.attribute_help();
-    quote! {
-      .subcommand(clap::SubCommand::with_name(#name).about(#about))
-    }
-  }
-
-  fn to_derived_tokens_from(&self, ident: &Ident) -> Tokens {
-    let name = self.attribute_name();
-    let variant = &self.ident;
-    quote! {
-      (#name, _) => #ident :: #variant(Default::default()),
-    }
   }
 }
 
