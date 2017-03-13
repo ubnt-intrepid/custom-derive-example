@@ -1,6 +1,6 @@
-#[macro_use]
-extern crate custom_derive;
 extern crate clap;
+#[macro_use]
+extern crate clap_derive;
 
 trait App {
   fn app<'a, 'b: 'a>() -> clap::App<'a, 'b>;
@@ -25,8 +25,11 @@ struct Foo;
 #[clap(name = "bar", about = "Bar app")]
 struct Bar;
 
-fn main() {
-  let ref matches = MyApp::app().get_matches();
+#[test]
+fn test_app() {
+  let args = vec!["myapp", "foo"];
+  let ref matches = MyApp::app().get_matches_from(args);
+  println!("a");
   let app: MyApp = matches.into();
 
   println!("{:?}", app);

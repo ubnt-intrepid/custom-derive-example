@@ -1,8 +1,15 @@
 [package]
-name = "custom-derive-example"
+name = "clap-derive"
 version = "0.1.0"
+description = "Unofficial proc-macro for deriving clap traits"
 authors = ["Yusuke Sasaki <yusuke.sasaki.nuem@gmail.com>"]
 
+[lib]
+proc-macro = true
+
 [dependencies]
+syn = "*"
+quote = "*"
+
+[dev-dependencies]
 clap = "*"
-custom-derive = { path = "custom-derive" }
